@@ -463,3 +463,90 @@ exports.logout = async (req, res) => {
         });
     }
 };
+
+// =============================================
+// DELETE ACCOUNT
+// =============================================
+exports.deleteAccount = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        // Log activity before deletion
+        await pool.query(
+            'INSERT INTO activity_logs (user_id, action, details) VALUES ($1, $2, $3)',
+            [userId, 'ACCOUNT_DELETED', 'User deleted their account']
+        );
+
+        // Delete user
+        const deleted = await User.delete(userId);
+        
+        if (!deleted) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Account deleted successfully'
+        });
+
+    } catch (error) {
+        console.error('Delete account error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error'
+        });
+    }
+};
+
+// =============================================
+// GET USER STATISTICS (for dashboard)
+// =============================================
+exports.getUserStats = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        // Get user's lost items count
+        const lostCount = await pool.query(
+            'SELECT COUNT(*) as count FROM lost_items WHERE user_id = $1',
+            [userId]
+        );
+
+        // Get user's found items count
+        const foundCount = await pool.query(
+            'SELECT COUNT(*) as count FROM found_items WHERE user_id = $1',
+            [userId]
+        );
+
+        // Get user's claims count
+        const claimsCount = await pool.query(
+            'SELECT COUNT(*) as count FROM claims WHERE claimant_id = $1',
+            [userId]
+        );
+
+        // Get approved claims count
+        const approvedClaims = await pool.query(
+            'SELECT COUNT(*) as count FROM claims WHERE claimant_id = $1 AND status = $2',
+            [userId, 'approved']
+        );
+
+        res.json({
+            success: true,
+            data: {
+                total_lost_reports: parseInt(lostCount.rows[0].count),
+                total_found_reports: parseInt(foundCount.rows[0].count),
+                total_claims: parseInt(claimsCount.rows[0].count),
+                approved_claims: parseInt(approvedClaims.rows[0].count)
+            }
+        });
+
+    } catch (error) {
+        console.error('Get user stats error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error'
+        });
+    }
+};

@@ -310,3 +310,199 @@ exports.deleteFoundItem = async (req, res) => {
         res.status(500).json({ success: false, message: 'Server error' });
     }
 };
+
+// =============================================
+// CLAIMS - COMPLETE FIXED VERSION
+// =============================================
+exports.getAllClaims = async (req, res) => {
+    try {
+        const { status, page = 1, limit = 20 } = req.query;
+        const offset = (page - 1) * limit;
+        const params = [];
+        let query = `
+            SELECT c.*, 
+                   u.full_name as claimant_name, 
+                   u.email as claimant_email,
+                   CASE 
+                       WHEN c.item_type = 'lost' THEN (SELECT item_name FROM lost_items WHERE id = c.item_id)
+                       WHEN c.item_type = 'found' THEN (SELECT item_name FROM found_items WHERE id = c.item_id)
+                   END as item_name,
+                   CASE 
+                       WHEN c.item_type = 'lost' THEN (SELECT category FROM lost_items WHERE id = c.item_id)
+                       WHEN c.item_type = 'found' THEN (SELECT category FROM found_items WHERE id = c.item_id)
+                   END as item_category
+            FROM claims c
+            JOIN users u ON c.claimant_id = u.id
+            WHERE 1=1
+        `;
+        let countQuery = `SELECT COUNT(*) as count FROM claims WHERE 1=1`;
+
+        if (status) { 
+            query += ` AND c.status = $${params.length + 1}`; 
+            countQuery += ` AND status = $${params.length + 1}`; 
+            params.push(status); 
+        }
+
+        query += ` ORDER BY c.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+        const [result, countResult] = await Promise.all([
+            pool.query(query, [...params, limit, offset]),
+            pool.query(countQuery, params)
+        ]);
+
+        res.json({
+            success: true,
+            data: result.rows,
+            pagination: { 
+                page: parseInt(page), 
+                limit: parseInt(limit), 
+                total: parseInt(countResult.rows[0].count), 
+                totalPages: Math.ceil(parseInt(countResult.rows[0].count) / limit) 
+            }
+        });
+    } catch (error) {
+        console.error('Get claims error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.updateClaimStatus = async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { id } = req.params;
+        const { status, admin_notes } = req.body;
+        
+        // Validate status
+        if (!['pending', 'approved', 'rejected'].includes(status)) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Invalid status. Must be pending, approved, or rejected' 
+            });
+        }
+
+        await client.query('BEGIN');
+        
+        // Get claim
+        const claim = await client.query('SELECT * FROM claims WHERE id = $1 FOR UPDATE', [id]);
+        if (claim.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ success: false, message: 'Claim not found' });
+        }
+        
+        const itemTable = itemTableForType(claim.rows[0].item_type);
+        const itemStatus = statusForDecision(claim.rows[0].item_type, status);
+        
+        const result = await client.query(
+            `UPDATE claims 
+             SET status = $1, 
+                 admin_notes = COALESCE($2, admin_notes),
+                 reviewed_by = $3,
+                 reviewed_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $4
+             RETURNING *`,
+            [status, admin_notes, req.user.id, id]
+        );
+        
+        if (itemStatus) {
+            await client.query(
+                `UPDATE ${itemTable} SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+                [itemStatus, claim.rows[0].item_id]
+            );
+        }
+        
+        // Log activity
+        await client.query(
+            'INSERT INTO activity_logs (user_id, action, details) VALUES ($1, $2, $3)',
+            [req.user.id, 'CLAIM_UPDATED', `Updated claim ID: ${id} to ${status}`]
+        );
+
+        await client.query('COMMIT');
+        
+        res.json({ 
+            success: true, 
+            message: `Claim ${status} successfully`, 
+            data: result.rows[0] 
+        });
+        
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Update claim error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Server error: ' + error.message 
+        });
+    } finally {
+        client.release();
+    }
+};
+
+exports.deleteClaim = async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { id } = req.params;
+        await client.query('BEGIN');
+
+        const claim = await client.query('SELECT * FROM claims WHERE id = $1 FOR UPDATE', [id]);
+        if (claim.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ success: false, message: 'Claim not found' });
+        }
+        
+        if (claim.rows[0].status !== 'approved') {
+            const itemTable = itemTableForType(claim.rows[0].item_type);
+            const itemStatus = openStatusForType(claim.rows[0].item_type);
+            await client.query(`UPDATE ${itemTable} SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, 
+                [itemStatus, claim.rows[0].item_id]
+            );
+        }
+
+        await client.query('DELETE FROM claims WHERE id = $1', [id]);
+        
+        await client.query('INSERT INTO activity_logs (user_id, action, details) VALUES ($1, $2, $3)', 
+            [req.user.id, 'CLAIM_DELETED', `Deleted claim ID: ${id}`]
+        );
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Claim deleted successfully' });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Delete claim error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    } finally {
+        client.release();
+    }
+};
+
+// =============================================
+// PASSWORD HISTORY
+// =============================================
+exports.getPasswordHistory = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const user = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
+        if (user.rows.length === 0) return res.status(404).json({ success: false, message: 'User not found' });
+        
+        const result = await pool.query(`SELECT id, created_at FROM password_history WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5`, [userId]);
+        res.json({ success: true, data: result.rows, count: result.rows.length });
+    } catch (error) {
+        console.error('Get password history error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
+
+exports.clearPasswordHistory = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const user = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
+        if (user.rows.length === 0) return res.status(404).json({ success: false, message: 'User not found' });
+        
+        const result = await pool.query('DELETE FROM password_history WHERE user_id = $1', [userId]);
+        await pool.query('INSERT INTO activity_logs (user_id, action, details) VALUES ($1, $2, $3)', 
+            [req.user.id, 'PASSWORD_HISTORY_CLEARED', `Cleared password history for user ${userId}`]
+        );
+        res.json({ success: true, message: 'Password history cleared', deleted: result.rowCount });
+    } catch (error) {
+        console.error('Clear password history error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+};
