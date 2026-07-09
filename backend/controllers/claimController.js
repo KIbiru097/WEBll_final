@@ -278,3 +278,136 @@ exports.getClaimById = async (req, res) => {
 // =============================================
 // UPDATE CLAIM STATUS (Admin Only)
 // =============================================
+exports.updateClaimStatus = async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { id } = req.params;
+        const { status, admin_notes } = req.body;
+        const adminId = req.user.id;
+
+        await client.query('BEGIN');
+
+        // Get claim
+        const claimResult = await client.query(
+            'SELECT * FROM claims WHERE id = $1 FOR UPDATE',
+            [id]
+        );
+
+        if (claimResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({
+                success: false,
+                message: 'Claim not found'
+            });
+        }
+
+        const claim = claimResult.rows[0];
+        const itemStatus = statusForDecision(claim.item_type, status);
+
+        // Update claim
+        const result = await client.query(
+            `UPDATE claims 
+             SET status = $1,
+                 admin_notes = COALESCE($2, admin_notes),
+                 reviewed_by = $3,
+                 reviewed_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $4
+             RETURNING *`,
+            [status, admin_notes, adminId, id]
+        );
+
+        // Update item status based on claim decision
+        if (itemStatus) {
+            const table = itemTableForType(claim.item_type);
+            await client.query(
+                `UPDATE ${table} SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+                [itemStatus, claim.item_id]
+            );
+        }
+
+        await client.query(
+            `INSERT INTO activity_logs (user_id, action, details) 
+             VALUES ($1, $2, $3)`,
+            [adminId, `CLAIM_${status.toUpperCase()}`, `Updated claim ID: ${id} to ${status}`]
+        );
+
+        await client.query('COMMIT');
+
+        res.json({
+            success: true,
+            message: `Claim ${status} successfully`,
+            data: result.rows[0]
+        });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Update claim error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error'
+        });
+    } finally {
+        client.release();
+    }
+};
+
+// =============================================
+// DELETE CLAIM (Admin Only)
+// =============================================
+exports.deleteClaim = async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { id } = req.params;
+        await client.query('BEGIN');
+
+        const claimResult = await client.query(
+            'SELECT * FROM claims WHERE id = $1 FOR UPDATE',
+            [id]
+        );
+
+        if (claimResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({
+                success: false,
+                message: 'Claim not found'
+            });
+        }
+
+        const claim = claimResult.rows[0];
+
+        // Revert item status
+        if (claim.status !== 'approved') {
+            const table = itemTableForType(claim.item_type);
+            await client.query(
+                `UPDATE ${table} SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+                [openStatusForType(claim.item_type), claim.item_id]
+            );
+        }
+
+        await client.query('DELETE FROM claims WHERE id = $1', [id]);
+
+        await client.query(
+            `INSERT INTO activity_logs (user_id, action, details) 
+             VALUES ($1, $2, $3)`,
+            [req.user.id, 'CLAIM_DELETED', `Deleted claim ID: ${id}`]
+        );
+
+        await client.query('COMMIT');
+
+        res.json({
+            success: true,
+            message: 'Claim deleted successfully'
+        });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Delete claim error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error'
+        });
+    } finally {
+        client.release();
+    }
+};
