@@ -352,9 +352,6 @@ exports.updateClaimStatus = async (req, res) => {
     }
 };
 
-// =============================================
-// DELETE CLAIM (Admin Only)
-// =============================================
 exports.deleteClaim = async (req, res) => {
     const client = await pool.connect();
     try {
