@@ -34,21 +34,22 @@ see `frontend/src/index.css` and `tailwind.config.js`), Axios.
 ## Project Structure
 
 ```
-Lost/
+Lost-updated/
 ├── backend/
-│   ├── config/          # DB connection (config/db.js), multer config
+│   ├── config/          # DB connection (db.js), JWT config (jwt.js), multer config (multer.js), init.sql (full schema)
 │   ├── controllers/      # Route handlers (auth, items, claims, admin)
-│   ├── middleware/       # JWT auth (protect/authorize), validation
-│   ├── models/           # DB query layer (User, LostItem, FoundItem)
-│   ├── migrations/       # SQL migrations + runner (npm run migrate)
-│   ├── routes/           # Express routers
-│   ├── services/         # Shared business logic (claim approve/reject/delete)
-│   ├── uploads/          # Uploaded images (found-items/ lost-items/ proofs/)
+│   ├── middleware/       # JWT auth (auth.js), role check (role.js), validation, error handler
+│   ├── models/           # DB query layer (User, LostItem, FoundItem, Claim)
+│   ├── routes/           # Express routers (auth, lost-items, found-items, claims, admin)
+│   ├── services/         # Business logic (emailService)
+│   ├── utils/            # Utilities (logger, response helpers)
+│   ├── uploads/          # Uploaded images (lost-items/ found-items/ proofs/)
+│   ├── logs/             # Application logs
 │   └── server.js
 └── frontend/
     ├── src/
-    │   ├── components/   # Auth, Items, Claims, Layout, shared icons
-    │   ├── contexts/      # AuthContext
+    │   ├── components/   # Auth, Items, Claims, Layout, Admin, shared icons, ProtectedRoute
+    │   ├── contexts/      # AuthContext, useAuth
     │   ├── pages/         # Dashboard, Admin, MyReports, MyClaims, Home, Profile
     │   └── services/      # api.js (axios instance + asset URL helper)
     └── vite.config.js
@@ -57,33 +58,33 @@ Lost/
 ## Prerequisites
 
 - Node.js 18+
-- PostgreSQL 13+, already running, with tables for `users`, `lost_items`, `found_items`,
-  `claims`, and `activity_logs` (see **Database** below — this repo ships an incremental
-  migration, not the original full schema)
+- PostgreSQL 13+, already running
 
 ## Database
 
-This repo doesn't include the original `CREATE TABLE` schema — it was created directly
-against the database this project was built on. You need a Postgres database with the
-tables the code expects: `users`, `lost_items`, `found_items`, `claims`, `activity_logs`.
+The full database schema is included in `backend/config/init.sql`. It creates all required
+tables (`users`, `lost_items`, `found_items`, `claims`, `activity_logs`, `password_history`),
+indexes, triggers, views, and sample data.
 
-Once your base schema exists, apply the migration in `backend/migrations/`:
+> **`claims.item_id`** is polymorphic — it references either `lost_items.id` or `found_items.id`
+> depending on `item_type`. A single Postgres FK can only point to one table, so referential
+> integrity is enforced at the application level.
+
+### Option A: Initialize from scratch
 
 ```bash
-cd backend
-npm run migrate
+psql -U postgres -d lost_found_db -f backend/config/init.sql
 ```
 
-This adds `reviewed_by` and `reviewed_at` to the `claims` table. **These columns are
-required** — claim approval/rejection and the admin statistics endpoint fail without them.
-The migration is safe to re-run (uses `IF NOT EXISTS`).
+### Option B: Use an existing database
+
+If you already have a Postgres database with the required tables, make sure it includes the
+`reviewed_by` and `reviewed_at` columns on the `claims` table (included in the schema).
 
 > **Note on `claims.item_id`:** a claim can point at either `lost_items` or `found_items`
 > depending on `item_type`, so `item_id` can't carry a normal foreign key (Postgres FKs only
-> reference one table). Referential integrity for this relationship is enforced in
-> `backend/services/claimDecisionService.js` at the application level, not the database
-> level. A real FK would require splitting `claims` into `lost_item_claims` /
-> `found_item_claims` — a larger schema change, outside the scope of the current migration.
+> reference one table). Referential integrity for this relationship is enforced at the
+> application level in the claim controller, not the database level.
 
 ## Backend Setup
 
@@ -91,7 +92,6 @@ The migration is safe to re-run (uses `IF NOT EXISTS`).
 cd backend
 npm install
 cp .env.example .env   # fill in your real DB credentials, JWT secret, etc.
-npm run migrate        # apply backend/migrations/*.sql
 npm run dev             # nodemon, http://localhost:5000
 ```
 
@@ -102,17 +102,19 @@ npm run dev             # nodemon, http://localhost:5000
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | Postgres connection |
 | `JWT_SECRET`, `JWT_EXPIRE` | Auth token signing |
 | `MAX_FILE_SIZE` | Upload size limit in bytes |
-| `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USER`, `EMAIL_PASS` | Password-reset emails (optional in dev) |
+| `EMAIL_USER`, `EMAIL_PASS` | Password-reset emails (optional in dev) |
 
 ## Frontend Setup
 
 ```bash
 cd frontend
 npm install
-cp .env.example .env   # set VITE_API_URL if the API isn't on localhost:5000
 npm run dev             # http://localhost:3000
 npm run build           # production build to frontend/dist
 ```
+
+The frontend uses Vite's dev server proxy to forward `/api` and `/uploads` requests to the
+backend on port 5000, so no API URL configuration is needed in development.
 
 ## Creating the First Admin Account
 
@@ -140,7 +142,7 @@ All routes are prefixed with `/api`. Protected routes require `Authorization: Be
 **Auth** (`/api/auth`)
 `POST /register` · `POST /login` · `POST /forgot-password` · `POST /reset-password` ·
 `GET /verify-reset-token/:token` · `GET /profile` · `PUT /profile` ·
-`PUT /change-password` · `POST /logout` · `DELETE /account` · `GET /stats`
+`PUT /change-password` · `POST /logout` · `DELETE /account`
 
 **Lost Items** (`/api/lost-items`)
 `GET /` (search/category/location/status/user_id/page/limit) · `GET /:id` ·
@@ -169,7 +171,7 @@ All routes are prefixed with `/api`. Protected routes require `Authorization: Be
      auto-rejected, since the item is already going back to its owner.
    - **Rejected** → item status reverts to its type-correct open state (`open` for lost
      items, `available` for found items).
-3. All of the above runs in a single DB transaction (`backend/services/claimDecisionService.js`),
+3. All of the above runs in a single DB transaction (`backend/controllers/claimController.js`),
    so a claim can't end up "approved" while the item is stuck on the wrong status because a
    later step failed.
 
@@ -177,13 +179,11 @@ All routes are prefixed with `/api`. Protected routes require `Authorization: Be
 
 - Registration always creates a `student` account server-side, regardless of what the
   client sends — admin accounts can only be created by an existing admin.
-- Claim approve/reject/delete go through one shared, transaction-wrapped service used by
-  both `/api/claims/:id` and `/api/admin/claims/:id`, so there's a single source of truth
-  for status transitions instead of two endpoints that could disagree.
+- Claim approve/reject/delete go through transaction-wrapped logic in the claim controller,
+  so there's a single source of truth for status transitions instead of two endpoints that
+  could disagree.
 
 ## Known Limitations
 
 - No automated test suite yet.
 - `claims.item_id` has no database-level foreign key (see note under **Database**).
-- The original database schema isn't included in this repo — only the incremental
-  migration for the columns this codebase currently needs.
