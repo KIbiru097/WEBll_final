@@ -1,0 +1,292 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', sans-serif;
+  color: #1E1B18;
+  background: #F7F3EC;
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Plus Jakarta Sans', Inter, ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+::selection {
+  background: #D9BE9C;
+  color: #301F12;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #CCC5B8; border-radius: 999px; border: 2px solid #F7F3EC; }
+::-webkit-scrollbar-thumb:hover { background: #A6A0A6; }
+
+/* Visible keyboard focus — the single accent color, so "trust/verification" and
+   "interactive" always mean the same hue across the app */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #8F6339;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer components {
+
+  /* ---------- Page transition ---------- */
+  .page-enter {
+    animation: fadeInUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* ---------- Loader ---------- */
+  .spinner {
+    @apply h-10 w-10 rounded-full border-4 animate-spin;
+    border-color: #E3DFD6;
+    border-top-color: #8F6339;
+  }
+
+  /* ---------- Surfaces ---------- */
+  .lux-card {
+    @apply border shadow-soft transition-all duration-300 ease-out;
+    background: #FFFFFF;
+    border-color: #E3DFD6;
+    border-radius: 1.25rem;
+  }
+
+  .lux-card:hover {
+    border-color: rgba(143, 99, 57, 0.3);
+    box-shadow: 0 2px 4px rgba(30, 27, 24, 0.05), 0 20px 45px rgba(30, 27, 24, 0.08);
+  }
+
+  .lux-panel {
+    @apply relative overflow-hidden;
+    background: #1E1B18;
+    color: #F7F3EC;
+    border-radius: 1.75rem;
+    box-shadow: 0 24px 60px rgba(30, 27, 24, 0.25);
+  }
+
+  /* ---------- Buttons ---------- */
+  /* Primary CTA: the single clay/brown accent, cream text for contrast. */
+  .lux-button {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold transition-all duration-200 ease-out disabled:opacity-50 disabled:pointer-events-none;
+    min-height: 44px;
+    border-radius: 0.75rem;
+    background: #8F6339;
+    color: #FEFDFB;
+    border: 1px solid transparent;
+    box-shadow: 0 8px 24px rgba(143, 99, 57, 0.25);
+  }
+
+  .lux-button:hover {
+    background: #77502D;
+    transform: translateY(-1px);
+    box-shadow: 0 12px 30px rgba(143, 99, 57, 0.32);
+  }
+
+  .lux-button:active {
+    transform: translateY(0px) scale(0.98);
+  }
+
+  .lux-button-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold transition-all duration-200 ease-out disabled:opacity-50 disabled:pointer-events-none;
+    min-height: 44px;
+    border-radius: 0.75rem;
+    background: #FFFFFF;
+    color: #4F4A43;
+    border: 1px solid #E3DFD6;
+  }
+
+  .lux-button-secondary:hover {
+    background: #F7F3EC;
+    border-color: rgba(143, 99, 57, 0.35);
+    color: #8F6339;
+    transform: translateY(-1px);
+  }
+
+  .lux-button-secondary:active {
+    transform: translateY(0px) scale(0.98);
+  }
+
+  .lux-button-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold transition-all duration-200 ease-out disabled:opacity-50;
+    border-radius: 0.75rem;
+    background: transparent;
+    color: #6B655C;
+  }
+
+  .lux-button-ghost:hover {
+    background: rgba(143, 99, 57, 0.1);
+    color: #77502D;
+  }
+
+  /* ---------- Inputs ---------- */
+  /* Accent focus ring — inputs are where "verification/trust" happens. */
+  .lux-input {
+    @apply w-full px-3.5 py-2.5 border text-sm transition-all duration-200 ease-out focus:outline-none;
+    background: #FFFFFF;
+    border-color: #E3DFD6;
+    border-radius: 0.75rem;
+    color: #1E1B18;
+  }
+
+  .lux-input::placeholder {
+    color: #A6A0A6;
+  }
+
+  .lux-input:focus {
+    border-color: #8F6339;
+    box-shadow: 0 0 0 4px rgba(143, 99, 57, 0.14);
+  }
+
+  .lux-input:disabled {
+    background: #F0EEE9;
+    color: #A6A0A6;
+  }
+
+  .lux-label {
+    @apply block text-sm font-semibold mb-2;
+    color: #4F4A43;
+  }
+
+  .lux-link {
+    @apply font-semibold transition-colors duration-200;
+    color: #8F6339;
+  }
+
+  .lux-link:hover {
+    color: #77502D;
+  }
+
+  /* ---------- Alerts ---------- */
+  /* Kept within the 3-color palette: both alerts are grey/cream surfaces,
+     distinguished by icon + weight rather than a red/teal hue. */
+  .lux-alert-error {
+    @apply border px-4 py-3 text-sm mb-4 flex items-start gap-2 animate-slide-down;
+    background: #F0EEE9;
+    border-color: #CCC5B8;
+    border-radius: 0.75rem;
+    color: #332F2B;
+    font-weight: 600;
+  }
+
+  .lux-alert-success {
+    @apply border px-4 py-3 text-sm mb-4 flex items-start gap-2 animate-slide-down;
+    background: #F6EEE6;
+    border-color: #D9BE9C;
+    border-radius: 0.75rem;
+    color: #5E3F24;
+  }
+
+  /* ---------- Status badges ---------- */
+  /* Every status resolves to a shade of grey or the single accent color —
+     never a new hue. Open/available items are neutral grey (still out there);
+     pending/claimed items get a soft accent tint (in progress); approved/returned
+     items get a solid accent (resolved); rejected is dark grey (closed, not resolved). */
+  .status-badge {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold capitalize whitespace-nowrap;
+    border-radius: 999px;
+    border: 1px solid transparent;
+  }
+
+  .status-open {
+    background: #F0EEE9;
+    color: #57534E;
+    border-color: #E3DFD6;
+  }
+
+  .status-available {
+    background: #F0EEE9;
+    color: #57534E;
+    border-color: #E3DFD6;
+  }
+
+  .status-pending {
+    background: #F6EEE6;
+    color: #77502D;
+    border-color: #D9BE9C;
+  }
+
+  .status-claimed {
+    background: #F6EEE6;
+    color: #77502D;
+    border-color: #D9BE9C;
+  }
+
+  .status-approved {
+    background: #8F6339;
+    color: #FEFDFB;
+    border-color: #8F6339;
+  }
+
+  .status-returned {
+    background: #8F6339;
+    color: #FEFDFB;
+    border-color: #8F6339;
+  }
+
+  .status-rejected {
+    background: #332F2B;
+    color: #F0EEE9;
+    border-color: #332F2B;
+  }
+
+  /* ---------- Misc ---------- */
+  .kicker {
+    @apply inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em];
+  }
+
+  .icon-tile {
+    @apply flex items-center justify-center flex-shrink-0;
+    width: 46px;
+    height: 46px;
+    border-radius: 0.9rem;
+  }
+
+  .stagger > * {
+    animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .stagger > *:nth-child(1) { animation-delay: 0.02s; }
+  .stagger > *:nth-child(2) { animation-delay: 0.07s; }
+  .stagger > *:nth-child(3) { animation-delay: 0.12s; }
+  .stagger > *:nth-child(4) { animation-delay: 0.17s; }
+  .stagger > *:nth-child(5) { animation-delay: 0.22s; }
+  .stagger > *:nth-child(6) { animation-delay: 0.27s; }
+  .stagger > *:nth-child(n+7) { animation-delay: 0.3s; }
+}
+
+@keyframes fadeInUp {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
